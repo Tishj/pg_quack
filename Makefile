@@ -24,7 +24,9 @@ INCLUDEDIR_SERVER := ${shell $(PG_CONFIG) --includedir-server}
 
 DUCKDB_DIR = third_party/duckdb
 
-override PG_CFLAGS += -I$(CURDIR)/include -I$(CURDIR)/$(DUCKDB_DIR)
+DEBUG_FLAGS = -g -O0
+
+override PG_CFLAGS += $(DEBUG_FLAGS) -I$(CURDIR)/include -I$(CURDIR)/$(DUCKDB_DIR)
 
 SHLIB_LINK += -Wl,-rpath,$(PG_LIB)/ -L$(PG_LIB) -lduckdb -L$(CURDIR)/$(DUCKDB_DIR)
 

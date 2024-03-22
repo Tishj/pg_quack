@@ -39,6 +39,7 @@ _PG_init(void)
   StringInfo quack_default_data_dir = makeStringInfo();
   appendStringInfo(quack_default_data_dir, "%s/quack/", DataDir);
 
+  elog(INFO, "Initializing quack extension");
   DefineCustomStringVariable("quack.data_dir",
                              gettext_noop("Quack storage data directory."),
                              NULL,

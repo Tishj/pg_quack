@@ -6,6 +6,9 @@
 #include "executor/executor.h"
 #include "parser/parse_type.h"
 #include "tcop/utility.h"
+#include "catalog/pg_type.h"
+#include "utils/syscache.h"
+#include "utils/builtins.h"
 
 #include "quack.h"
 
@@ -16,6 +19,9 @@ static bool
 quack_check_tables(List * rtable)
 {
   ListCell *lc;
+  TupleDesc tupleDesc;
+  int numCols;
+
   foreach(lc, rtable)
   {
     RangeTblEntry * table = lfirst(lc);
@@ -25,6 +31,43 @@ quack_check_tables(List * rtable)
         return false;
 
     rel = RelationIdGetRelation(table->relid);
+
+// GET TYPE / NAME INFO
+
+    /* Get the tuple descriptor */
+    tupleDesc = RelationGetDescr(rel);
+    if (!tupleDesc) {
+        elog(ERROR, "Failed to get tuple descriptor for relation with OID %u", table->relid);
+        RelationClose(rel);
+		return false;
+    }
+
+    /* Get the number of columns */
+    numCols = tupleDesc->natts;
+
+    /* Loop through each column */
+    for (idx_t i = 0; i < numCols; i++) {
+        Form_pg_attribute attr = &tupleDesc->attrs[i];
+        Oid typeOid = attr->atttypid;
+		/* Get the type tuple */
+		HeapTuple typeTuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typeOid));
+		if (!HeapTupleIsValid(typeTuple)) {
+			elog(ERROR, "cache lookup failed for type %u", typeOid);
+			return false;
+		}
+		Form_pg_type typeStruct = (Form_pg_type) GETSTRUCT(typeTuple);
+		char *typeName = format_type_with_typemod(typeOid, typeStruct->typmodin);
+		ReleaseSysCache(typeTuple);
+        char *colName = NameStr(attr->attname);
+
+        /* Log column name and type */
+        elog(INFO, "Column name: %s, Type: %s", colName, typeName);
+
+        /* Free memory */
+        pfree(typeName);
+    }
+
+// END
 
     if (rel->rd_amhandler != 0 &&
         GetTableAmRoutine(rel->rd_amhandler) != quack_get_table_am_routine())
