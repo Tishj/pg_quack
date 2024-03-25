@@ -31,6 +31,11 @@ PostgresReplacementScanData::~PostgresReplacementScanData() {
 
 unique_ptr<TableRef> PostgresReplacementScan(ClientContext &context, const string &table_name,
                                              ReplacementScanData *data) {
+	auto &scan_data = reinterpret_cast<CAPIReplacementScanData &>(*data);
+	// Use 'QueryDesc *desc' to query the postgres table
+	// We will return a custom table function scan with parameters (likely passing a pointer as parameter)
+
+	// Then inside the table function we can scan tuples from the postgres table and convert them into duckdb vectors.
 	return nullptr;
 }
 

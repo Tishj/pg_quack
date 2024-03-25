@@ -88,7 +88,8 @@ static bool quack_check_tables(List *rtable) {
 }
 
 static void quack_executor_run(QueryDesc *queryDesc, ScanDirection direction, uint64 count, bool execute_once) {
-	if (queryDesc->operation == CMD_SELECT && quack_check_tables(queryDesc->plannedstmt->rtable)) {
+	// if (queryDesc->operation == CMD_SELECT && quack_check_tables(queryDesc->plannedstmt->rtable)) {
+	if (queryDesc->operation == CMD_SELECT) {
 		duckdb::QuackExecuteSelect(queryDesc, direction, count);
 		return;
 	}
