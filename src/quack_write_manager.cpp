@@ -13,7 +13,7 @@ static MemoryContext quack_write_state_context = NULL;
 
 typedef struct SubXidWriteState {
 	SubTransactionId subXid;
-	QuackWriteState *quack_write_state_entry;
+	duckdb::QuackWriteState *quack_write_state_entry;
 	struct SubXidWriteState *next;
 } SubXidWriteState;
 
@@ -29,11 +29,43 @@ static void cleanup_write_state_map(void *arg) {
 	quack_write_state_context = NULL;
 }
 
-QuackWriteState *quack_init_write_state(Relation relation, Oid databaseOid, SubTransactionId currentSubXid) {
+void quack_flush_write_state(SubTransactionId currentSubXid, SubTransactionId parentSubXid, bool commit) {
+	HASH_SEQ_STATUS status;
+	QuackWriteStateMapEntry *entry;
+
+	if (quack_write_state_map == NULL) {
+		return;
+	}
+
+	hash_seq_init(&status, quack_write_state_map);
+
+	while ((entry = (QuackWriteStateMapEntry *)hash_seq_search(&status)) != 0) {
+		SubXidWriteState *stack_head = entry->write_state_stack;
+
+		if (entry->write_state_stack == NULL) {
+			continue;
+		}
+
+		if (stack_head->subXid == currentSubXid) {
+			if (commit) {
+				duckdb::QuackWriteState *quack_write_state = stack_head->quack_write_state_entry;
+				quack_write_state->appender->Close();
+				quack_write_state->appender.reset();
+				quack_write_state->database.reset();
+				quack_write_state->connection.reset();
+			}
+
+			entry->write_state_stack = stack_head->next;
+		}
+	}
+}
+}
+
+duckdb::QuackWriteState *quack_init_write_state(Relation relation, Oid databaseOid, SubTransactionId currentSubXid) {
 	bool found;
 	QuackWriteStateMapEntry *hash_entry = NULL;
 	SubXidWriteState *stack_entry = NULL;
-	QuackWriteState *quack_write_state = NULL;
+	duckdb::QuackWriteState *quack_write_state = NULL;
 	MemoryContext oldContext = NULL;
 
 	if (quack_write_state_map == NULL) {
@@ -81,12 +113,12 @@ QuackWriteState *quack_init_write_state(Relation relation, Oid databaseOid, SubT
 		hash_entry->write_state_stack = stack_entry;
 	}
 
-	quack_write_state = (QuackWriteState *)palloc0(sizeof(QuackWriteState));
+	quack_write_state = (duckdb::QuackWriteState *)palloc0(sizeof(duckdb::QuackWriteState));
 
 	quack_write_state->rel_node = relation->rd_node.relNode;
-	quack_write_state->database = quack_open_database(databaseOid, true);
-	quack_write_state->connection = quack_open_connection(quack_write_state->database);
-	quack_write_state->appender = quack_create_appender(quack_write_state->connection, relation->rd_rel->relname.data);
+	quack_write_state->database = duckdb::quack_open_database(databaseOid, true);
+	quack_write_state->connection = quack_open_connection(*quack_write_state->database);
+	quack_write_state->appender = quack_create_appender(*quack_write_state->connection, relation->rd_rel->relname.data);
 	quack_write_state->row_count = 0;
 
 	stack_entry->quack_write_state_entry = quack_write_state;
@@ -94,35 +126,4 @@ QuackWriteState *quack_init_write_state(Relation relation, Oid databaseOid, SubT
 	MemoryContextSwitchTo(oldContext);
 
 	return quack_write_state;
-}
-
-void quack_flush_write_state(SubTransactionId currentSubXid, SubTransactionId parentSubXid, bool commit) {
-	HASH_SEQ_STATUS status;
-	QuackWriteStateMapEntry *entry;
-
-	if (quack_write_state_map == NULL) {
-		return;
-	}
-
-	hash_seq_init(&status, quack_write_state_map);
-
-	while ((entry = (QuackWriteStateMapEntry *)hash_seq_search(&status)) != 0) {
-		SubXidWriteState *stack_head = entry->write_state_stack;
-
-		if (entry->write_state_stack == NULL) {
-			continue;
-		}
-
-		if (stack_head->subXid == currentSubXid) {
-			if (commit) {
-				QuackWriteState *quack_write_state = stack_head->quack_write_state_entry;
-				duckdb_appender_destroy(&quack_write_state->appender);
-				duckdb_disconnect(&quack_write_state->connection);
-				duckdb_close(&quack_write_state->database);
-			}
-
-			entry->write_state_stack = stack_head->next;
-		}
-	}
-}
 }

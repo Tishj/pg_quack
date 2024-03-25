@@ -101,20 +101,20 @@ static TransactionId quack_index_delete_tuples(Relation rel, TM_IndexDeleteOp *d
 
 static void quack_tuple_insert(Relation rel, TupleTableSlot *slot, CommandId cid, int options,
                                struct BulkInsertStateData *bistate) {
-	QuackWriteState *write_state = quack_init_write_state(rel, MyDatabaseId, GetCurrentSubTransactionId());
+	duckdb::QuackWriteState *write_state = quack_init_write_state(rel, MyDatabaseId, GetCurrentSubTransactionId());
 
 	slot_getallattrs(slot);
 
 	for (int i = 0; i < slot->tts_nvalid; i++) {
 		if (slot->tts_isnull[i]) {
-			duckdb_append_null(write_state->appender);
+			write_state->appender->Append(nullptr);
 		} else {
-			quack_append_value(write_state->appender, slot->tts_tupleDescriptor->attrs[i].atttypid,
-			                   slot->tts_values[i]);
+			duckdb::quack_append_value(*write_state->appender, slot->tts_tupleDescriptor->attrs[i].atttypid,
+			                           slot->tts_values[i]);
 		}
 	}
 
-	duckdb_appender_end_row(write_state->appender);
+	write_state->appender->EndRow();
 
 	pgstat_count_heap_insert(rel, 1);
 }
@@ -130,7 +130,7 @@ static void quack_tuple_complete_speculative(Relation rel, TupleTableSlot *slot,
 
 static void quack_multi_insert(Relation rel, TupleTableSlot **slots, int ntuples, CommandId cid, int options,
                                struct BulkInsertStateData *bistate) {
-	QuackWriteState *write_state = quack_init_write_state(rel, MyDatabaseId, GetCurrentSubTransactionId());
+	duckdb::QuackWriteState *write_state = quack_init_write_state(rel, MyDatabaseId, GetCurrentSubTransactionId());
 
 	for (int n = 0; n < ntuples; n++) {
 		TupleTableSlot *slot = slots[n];
@@ -139,14 +139,14 @@ static void quack_multi_insert(Relation rel, TupleTableSlot **slots, int ntuples
 
 		for (int i = 0; i < slot->tts_nvalid; i++) {
 			if (slot->tts_isnull[i]) {
-				duckdb_append_null(write_state->appender);
+				write_state->appender->Append(nullptr);
 			} else {
-				quack_append_value(write_state->appender, slot->tts_tupleDescriptor->attrs[i].atttypid,
-				                   slot->tts_values[i]);
+				duckdb::quack_append_value(*write_state->appender, slot->tts_tupleDescriptor->attrs[i].atttypid,
+				                           slot->tts_values[i]);
 			}
 		}
 
-		duckdb_appender_end_row(write_state->appender);
+		write_state->appender->EndRow();
 	}
 
 	pgstat_count_heap_insert(rel, ntuples);

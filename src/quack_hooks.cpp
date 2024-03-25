@@ -14,6 +14,14 @@ extern "C" {
 #include "utils/syscache.h"
 #include "utils/builtins.h"
 
+} // extern "C"
+
+namespace duckdb {
+static void QuackExecuteSelect(QueryDesc *query_desc, ScanDirection direction, uint64_t count);
+} // namespace duckdb
+
+extern "C" {
+
 static ExecutorRun_hook_type PrevExecutorRunHook = NULL;
 static ProcessUtility_hook_type PrevProcessUtilityHook = NULL;
 
@@ -78,65 +86,10 @@ static bool quack_check_tables(List *rtable) {
 	return true;
 }
 
-static void QuackExecuteSelect(QueryDesc *query_desc, ScanDirection direction, uint64_t count) {
-	duckdb_database db = quack_open_database(MyDatabaseId, false);
-	duckdb_connection connection = quack_open_connection(db);
-	duckdb_result result;
-	idx_t row_count;
-	idx_t column_count;
-
-	CmdType operation;
-	DestReceiver *dest;
-
-	TupleTableSlot *slot = NULL;
-
-	if (duckdb_query(connection, query_desc->sourceText, &result) == DuckDBError) {
-	}
-
-	operation = query_desc->operation;
-	dest = query_desc->dest;
-
-	dest->rStartup(dest, operation, query_desc->tupDesc);
-
-	slot = MakeTupleTableSlot(query_desc->tupDesc, &TTSOpsHeapTuple);
-
-	row_count = duckdb_row_count(&result);
-	column_count = duckdb_column_count(&result);
-
-	for (idx_t row = 0; row < row_count; row++) {
-		ExecClearTuple(slot);
-
-		for (idx_t col = 0; col < column_count; col++) {
-			if (duckdb_value_is_null(&result, col, row)) {
-				slot->tts_isnull[col] = true;
-			} else {
-				slot->tts_isnull[col] = false;
-				quack_read_result(slot, &result, col, row);
-			}
-		}
-
-		ExecStoreVirtualTuple(slot);
-		dest->receiveSlot(slot, dest);
-
-		for (idx_t i = 0; i < column_count; i++) {
-			if (slot->tts_tupleDescriptor->attrs[i].attbyval == false) {
-				pfree(DatumGetPointer(slot->tts_values[i]));
-			}
-		}
-	}
-
-	dest->rShutdown(dest);
-
-	duckdb_destroy_result(&result);
-	duckdb_disconnect(&connection);
-	duckdb_close(&db);
-
-	return;
-}
-
 static void quack_executor_run(QueryDesc *queryDesc, ScanDirection direction, uint64 count, bool execute_once) {
 	if (queryDesc->operation == CMD_SELECT && quack_check_tables(queryDesc->plannedstmt->rtable)) {
-		QuackExecuteSelect(queryDesc, direction, count);
+		duckdb::QuackExecuteSelect(queryDesc, direction, count);
+		return;
 	}
 
 	if (PrevExecutorRunHook) {
@@ -173,7 +126,7 @@ static void quack_process_utility(PlannedStmt *pstmt, const char *queryString, b
 			}
 			appendStringInfo(create_table_str, ");");
 
-			quack_execute_query(create_table_str->data);
+			duckdb::quack_execute_query(create_table_str->data);
 		}
 	}
 
@@ -188,3 +141,64 @@ void quack_init_hooks(void) {
 	ProcessUtility_hook = quack_process_utility;
 }
 }
+
+namespace duckdb {
+
+static void QuackExecuteSelect(QueryDesc *query_desc, ScanDirection direction, uint64_t count) {
+	auto db = quack_open_database(MyDatabaseId, false);
+	auto connection = quack_open_connection(*db);
+	idx_t column_count;
+
+	CmdType operation;
+	DestReceiver *dest;
+
+	TupleTableSlot *slot = NULL;
+
+	// FIXME: try-catch ?
+	auto res = connection->Query(query_desc->sourceText);
+	if (res->HasError()) {
+	}
+
+	operation = query_desc->operation;
+	dest = query_desc->dest;
+
+	dest->rStartup(dest, operation, query_desc->tupDesc);
+
+	slot = MakeTupleTableSlot(query_desc->tupDesc, &TTSOpsHeapTuple);
+	column_count = res->ColumnCount();
+
+	while (true) {
+
+		auto chunk = res->Fetch();
+		if (!chunk || chunk->size() == 0) {
+			break;
+		}
+
+		for (idx_t row = 0; row < chunk->size(); row++) {
+			ExecClearTuple(slot);
+
+			for (idx_t col = 0; col < column_count; col++) {
+				auto value = chunk->GetValue(col, row);
+				if (value.IsNull()) {
+					slot->tts_isnull[col] = true;
+				} else {
+					slot->tts_isnull[col] = false;
+					quack_translate_value(slot, value, col);
+				}
+			}
+			ExecStoreVirtualTuple(slot);
+			dest->receiveSlot(slot, dest);
+
+			for (idx_t i = 0; i < column_count; i++) {
+				if (slot->tts_tupleDescriptor->attrs[i].attbyval == false) {
+					pfree(DatumGetPointer(slot->tts_values[i]));
+				}
+			}
+		}
+	}
+
+	dest->rShutdown(dest);
+	return;
+}
+
+} // namespace duckdb

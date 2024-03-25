@@ -20,28 +20,6 @@ static StringInfo quack_database_path(Oid databaseOid) {
 	return str;
 }
 
-void quack_execute_query(const char *query) {
-	duckdb_database db;
-	duckdb_connection connection;
-
-	db = quack_open_database(MyDatabaseId, true);
-
-	if (duckdb_connect(db, &connection) == DuckDBError) {
-	}
-
-	duckdb_query(connection, query, NULL);
-	duckdb_disconnect(&connection);
-}
-
-duckdb_appender quack_create_appender(duckdb_connection connection, const char *tableName) {
-	duckdb_appender appender;
-
-	if (duckdb_appender_create(connection, NULL, tableName, &appender) == DuckDBError) {
-	}
-
-	return appender;
-}
-
 const char *quack_duckdb_type(Oid columnOid) {
 	switch (columnOid) {
 	case BOOLOID:
@@ -67,90 +45,57 @@ const char *quack_duckdb_type(Oid columnOid) {
 	}
 }
 
-void quack_append_value(duckdb_appender appender, Oid columnOid, Datum value) {
-	switch (columnOid) {
-	case BOOLOID:
-		duckdb_append_bool(appender, value);
-		break;
-	case CHAROID:
-		duckdb_append_int8(appender, value);
-		break;
-	case INT2OID:
-		duckdb_append_int16(appender, value);
-		break;
-	case INT4OID:
-		duckdb_append_int32(appender, value);
-		break;
-	case INT8OID:
-		duckdb_append_int64(appender, value);
-		break;
-	case BPCHAROID:
-	case TEXTOID:
-	case VARCHAROID: {
-		const char *text = VARDATA_ANY(value);
-		int len = VARSIZE_ANY_EXHDR(value);
-		duckdb_append_varchar_length(appender, text, len);
-		break;
-	}
-	case DATEOID: {
-		duckdb_date date = {.days = static_cast<int32_t>(value + QUACK_DUCK_DATE_OFFSET)};
-		duckdb_append_date(appender, date);
-		break;
-	}
-	case TIMESTAMPOID: {
-		duckdb_timestamp timestamp = {.micros = static_cast<int64_t>(value + QUACK_DUCK_TIMESTAMP_OFFSET)};
-		duckdb_append_timestamp(appender, timestamp);
-		break;
-	}
-	default:
-		elog(ERROR, "Unsuported quack type: %d", columnOid);
-	}
-}
+} // extern "C"
 
-void quack_read_result(TupleTableSlot *slot, duckdb_result *result, idx_t col, idx_t row) {
+namespace duckdb {
+
+void quack_translate_value(TupleTableSlot *slot, Value &value, idx_t col) {
 	Oid oid = slot->tts_tupleDescriptor->attrs[col].atttypid;
 
 	switch (oid) {
 	case BOOLOID:
-		slot->tts_values[col] = duckdb_value_boolean(result, col, row);
+		slot->tts_values[col] = value.GetValue<bool>();
 		break;
 	case CHAROID:
-		slot->tts_values[col] = duckdb_value_int8(result, col, row);
+		slot->tts_values[col] = value.GetValue<int8_t>();
 		break;
 	case INT2OID:
-		slot->tts_values[col] = duckdb_value_int16(result, col, row);
+		slot->tts_values[col] = value.GetValue<int16_t>();
 		break;
 	case INT4OID:
-		slot->tts_values[col] = duckdb_value_int32(result, col, row);
+		slot->tts_values[col] = value.GetValue<int32_t>();
 		break;
 	case INT8OID:
-		slot->tts_values[col] = duckdb_value_int64(result, col, row);
+		slot->tts_values[col] = value.GetValue<int64_t>();
 		break;
 	case BPCHAROID:
 	case TEXTOID:
 	case VARCHAROID: {
-		char *varchar = duckdb_value_varchar(result, col, row);
-		int varchar_len = strlen(varchar);
+		auto str = value.GetValue<string>();
+		auto varchar = str.c_str();
+		auto varchar_len = str.size();
+
 		text *result = (text *)palloc0(varchar_len + VARHDRSZ);
 		SET_VARSIZE(result, varchar_len + VARHDRSZ);
 		memcpy(VARDATA(result), varchar, varchar_len);
 		slot->tts_values[col] = PointerGetDatum(result);
-		duckdb_free(varchar);
+		// FIXME: this doesn't need to be freed, the string_t is owned by the chunk right?
+		// duckdb_free(varchar);
 		break;
 	}
 	case DATEOID: {
-		duckdb_date date = duckdb_value_date(result, col, row);
+		date_t date = value.GetValue<date_t>();
 		slot->tts_values[col] = date.days - QUACK_DUCK_DATE_OFFSET;
 		break;
 	}
 	case TIMESTAMPOID: {
-		duckdb_timestamp timestamp = duckdb_value_timestamp(result, col, row);
+		dtime_t timestamp = value.GetValue<dtime_t>();
 		slot->tts_values[col] = timestamp.micros - QUACK_DUCK_TIMESTAMP_OFFSET;
 		break;
 	}
 	case FLOAT8OID:
 	case NUMERICOID: {
-		double result_double = duckdb_value_double(result, col, row);
+		double result_double = value.GetValue<double>();
 		slot->tts_tupleDescriptor->attrs[col].atttypid = FLOAT8OID;
 		slot->tts_tupleDescriptor->attrs[col].attbyval = true;
 		memcpy(&slot->tts_values[col], (char *)&result_double, sizeof(double));
@@ -160,42 +105,80 @@ void quack_read_result(TupleTableSlot *slot, duckdb_result *result, idx_t col, i
 		elog(ERROR, "Unsuported quack type: %d", oid);
 	}
 }
+
+void quack_execute_query(const char *query) {
+	auto db = quack_open_database(MyDatabaseId, true);
+	Connection connection(*db);
+
+	std::string query_string = std::string(query);
+	auto res = connection.Query(query_string);
+	// FIME: res.HasError() ??
 }
 
-duckdb_database quack_open_database(Oid databaseOid, bool preserveInsertOrder) {
-	duckdb_database database;
-	duckdb_config config;
+unique_ptr<Appender> quack_create_appender(Connection &connection, const char *tableName) {
+	// FIXME: try-catch ?
+	return make_uniq<Appender>(connection, "", std::string(tableName));
+}
 
-	StringInfo database_path = quack_database_path(databaseOid);
-	StringInfo error_string = makeStringInfo();
+void quack_append_value(Appender &appender, Oid columnOid, Datum value) {
+	switch (columnOid) {
+	case BOOLOID:
+		appender.Append<bool>(value);
+		break;
+	case CHAROID:
+		appender.Append<int8_t>(value);
+		break;
+	case INT2OID:
+		appender.Append<int16_t>(value);
+		break;
+	case INT4OID:
+		appender.Append<int32_t>(value);
+		break;
+	case INT8OID:
+		appender.Append<int64_t>(value);
+		break;
+	case BPCHAROID:
+	case TEXTOID:
+	case VARCHAROID: {
+		const char *text = VARDATA_ANY(value);
+		int len = VARSIZE_ANY_EXHDR(value);
+		string_t str(text, len);
+		appender.Append<string_t>(str);
+		break;
+	}
+	case DATEOID: {
+		date_t date(static_cast<int32_t>(value + QUACK_DUCK_DATE_OFFSET));
+		appender.Append<date_t>(date);
+		break;
+	}
+	case TIMESTAMPOID: {
+		dtime_t timestamp(static_cast<int64_t>(value + QUACK_DUCK_TIMESTAMP_OFFSET));
+		appender.Append<dtime_t>(timestamp);
+		break;
+	}
+	default:
+		elog(ERROR, "Unsuported quack type: %d", columnOid);
+	}
+}
 
+unique_ptr<DuckDB> quack_open_database(Oid databaseOid, bool preserveInsertOrder) {
 	/* Set lock for relation until transaction ends */
 	DirectFunctionCall1(pg_advisory_xact_lock_int8, Int64GetDatum((int64)databaseOid));
 
-	if (duckdb_create_config(&config) == DuckDBError) {
-	}
+	DBConfig config;
+	config.SetOptionByName("preserve_insertion_order", Value::BOOLEAN(false));
+	// Add the replacement scan
+	// config.replacement_scans.emplace_back(???);
 
-	if (preserveInsertOrder)
-		duckdb_set_config(config, "preserve_insertion_order", "false");
+	StringInfo database_path = quack_database_path(databaseOid);
 
-	enlargeStringInfo(error_string, 1024);
-
-	if (duckdb_open_ext(database_path->data, &database, config, &error_string->data) == DuckDBError) {
-		elog(WARNING, "[quack_open_database][duckdb_open_ext] %s", error_string->data);
-	}
-
-	pfree(error_string->data);
-
-	duckdb_destroy_config(&config);
-
-	return database;
+	// FIXME: Does this need try-catch?
+	return make_uniq<DuckDB>(database_path->data, &config);
 }
 
-duckdb_connection quack_open_connection(duckdb_database database) {
-	duckdb_connection connection;
-
-	if (duckdb_connect(database, &connection) == DuckDBError) {
-	}
-
-	return connection;
+unique_ptr<Connection> quack_open_connection(DuckDB database) {
+	// FIXME try-catch ?
+	return make_uniq<Connection>(database);
 }
+
+} // namespace duckdb
