@@ -151,6 +151,17 @@ static void QuackExecuteSelect(QueryDesc *query_desc, ScanDirection direction, u
 	db->instance->config.replacement_scans.emplace_back(
 	    PostgresReplacementScan, make_uniq_base<ReplacementScanData, PostgresReplacementScanData>(query_desc));
 	auto connection = quack_open_connection(*db);
+
+	// Add the postgres_scan inserted by the replacement scan
+	auto &context = *connection->context;
+	PostgresScanFunction scan_fun;
+	CreateTableFunctionInfo scan_info(scan_fun);
+
+	auto &catalog = Catalog::GetSystemCatalog(context);
+	context.transaction.BeginTransaction();
+	catalog.CreateTableFunction(context, &scan_info);
+	context.transaction.Commit();
+
 	idx_t column_count;
 
 	CmdType operation;
