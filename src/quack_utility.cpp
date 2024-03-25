@@ -1,3 +1,5 @@
+extern "C" {
+
 #include "postgres.h"
 
 #include "miscadmin.h"
@@ -7,7 +9,7 @@
 
 #include "duckdb.h"
 
-#include "quack.h"
+#include "quack.hpp"
 
 // DuckDB has date starting from 1/1/1970 while PG starts from 1/1/2000
 #define QUACK_DUCK_DATE_OFFSET 10957
@@ -159,13 +161,13 @@ quack_append_value(duckdb_appender appender, Oid columnOid, Datum value)
     }
     case DATEOID:
     {
-      duckdb_date date = { .days = value + QUACK_DUCK_DATE_OFFSET};
+      duckdb_date date = { .days = static_cast<int32_t>(value + QUACK_DUCK_DATE_OFFSET)};
       duckdb_append_date(appender, date);
       break;
     }
     case TIMESTAMPOID:
     {
-      duckdb_timestamp timestamp = { .micros = value + QUACK_DUCK_TIMESTAMP_OFFSET };
+      duckdb_timestamp timestamp = { .micros = static_cast<int64_t>(value + QUACK_DUCK_TIMESTAMP_OFFSET) };
       duckdb_append_timestamp(appender, timestamp);
       break;
     }
@@ -203,7 +205,7 @@ quack_read_result(TupleTableSlot * slot, duckdb_result * result,
     {
       char * varchar = duckdb_value_varchar(result, col, row);
       int varchar_len = strlen(varchar);
-      text * result = palloc0(varchar_len + VARHDRSZ);
+      text * result = (text *)palloc0(varchar_len + VARHDRSZ);
       SET_VARSIZE(result, varchar_len + VARHDRSZ);
       memcpy(VARDATA(result), varchar, varchar_len);
       slot->tts_values[col] = PointerGetDatum(result);
@@ -234,4 +236,6 @@ quack_read_result(TupleTableSlot * slot, duckdb_result * result,
     default:
         elog(ERROR, "Unsuported quack type: %d", oid);
   }
+}
+
 }

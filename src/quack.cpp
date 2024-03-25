@@ -1,3 +1,5 @@
+extern "C" {
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -11,7 +13,7 @@
 #include "commands/vacuum.h"
 #include "utils/guc.h"
 
-#include "quack.h"
+#include "quack.hpp"
 
 PG_MODULE_MAGIC;
 
@@ -88,4 +90,6 @@ quack_check_data_directory(const char * dataDirectory)
   }
 
   return true;
+}
+
 }

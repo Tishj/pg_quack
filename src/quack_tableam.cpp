@@ -1,3 +1,5 @@
+extern "C" {
+
 #include "postgres.h"
 
 #include "access/detoast.h"
@@ -15,7 +17,7 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 
-#include "quack.h"
+#include "quack.hpp"
 
 #include "duckdb.h"
 
@@ -556,4 +558,6 @@ PG_FUNCTION_INFO_V1(quack_am_handler);
 Datum quack_am_handler(PG_FUNCTION_ARGS)
 {
   PG_RETURN_POINTER(&quack_am_methods);
+}
+
 }

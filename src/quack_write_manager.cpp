@@ -1,10 +1,12 @@
+extern "C" {
+
 #include "postgres.h"
 
 #include "access/heaptoast.h"
 #include "common/hashfn.h"
 #include "executor/executor.h"
 
-#include "quack.h"
+#include "quack.hpp"
 
 static HTAB * quack_write_state_map = NULL;
 static MemoryContext quack_write_state_context = NULL;
@@ -66,7 +68,7 @@ quack_init_write_state(Relation relation, Oid databaseOid, SubTransactionId curr
                                         &cleanup_callback);
   }
 
-  hash_entry = hash_search(quack_write_state_map, &relation->rd_node.relNode, HASH_ENTER, &found);
+  hash_entry = (QuackWriteStateMapEntry *)hash_search(quack_write_state_map, &relation->rd_node.relNode, HASH_ENTER, &found);
 
   if (!found)
   {
@@ -87,7 +89,7 @@ quack_init_write_state(Relation relation, Oid databaseOid, SubTransactionId curr
 
   if (stack_entry == NULL)
   {
-    stack_entry = palloc0(sizeof(SubXidWriteState));
+    stack_entry = (SubXidWriteState *)palloc0(sizeof(SubXidWriteState));
     stack_entry->subXid = currentSubXid;
     stack_entry->next = hash_entry->write_state_stack;
     hash_entry->write_state_stack = stack_entry;
@@ -125,7 +127,7 @@ quack_flush_write_state(SubTransactionId currentSubXid,
 
   hash_seq_init(&status, quack_write_state_map);
 
-  while ((entry = hash_seq_search(&status)) != 0)
+  while ((entry = (QuackWriteStateMapEntry *)hash_seq_search(&status)) != 0)
   {
     SubXidWriteState * stack_head = entry->write_state_stack;
 
@@ -147,4 +149,6 @@ quack_flush_write_state(SubTransactionId currentSubXid,
       entry->write_state_stack = stack_head->next;
     }
   }
+}
+
 }

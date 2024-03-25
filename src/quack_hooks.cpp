@@ -1,3 +1,5 @@
+extern "C" {
+
 #include "postgres.h"
 
 #include "miscadmin.h"
@@ -10,7 +12,7 @@
 #include "utils/syscache.h"
 #include "utils/builtins.h"
 
-#include "quack.h"
+#include "quack.hpp"
 
 static ExecutorRun_hook_type PrevExecutorRunHook = NULL;
 static ProcessUtility_hook_type PrevProcessUtilityHook = NULL;
@@ -24,7 +26,7 @@ quack_check_tables(List * rtable)
 
   foreach(lc, rtable)
   {
-    RangeTblEntry * table = lfirst(lc);
+    RangeTblEntry * table = (RangeTblEntry *)lfirst(lc);
     Relation rel = NULL;
     
     if (!table->relid)
@@ -186,7 +188,7 @@ quack_process_utility(PlannedStmt * pstmt,
       appendStringInfo(create_table_str, "CREATE TABLE %s (", create_stmt->relation->relname);
       foreach(lc, create_stmt->tableElts)
       {
-        ColumnDef * def = lfirst(lc);
+        ColumnDef * def = (ColumnDef *)lfirst(lc);
         Oid pg_oid = LookupTypeNameOid(NULL, def->typeName, true);
 
         if (first)
@@ -218,4 +220,6 @@ quack_init_hooks(void)
 
   PrevProcessUtilityHook = ProcessUtility_hook ? ProcessUtility_hook : standard_ProcessUtility;
   ProcessUtility_hook = quack_process_utility;
+}
+
 }

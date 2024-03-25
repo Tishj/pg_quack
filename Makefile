@@ -3,13 +3,8 @@ EXTENSION = quack
 DATA = quack.control $(wildcard quack--*.sql)
 PGFILEDESC = "quack"
 
-SRCS = src/quack_hooks.o \
-	   src/quack_tableam.o \
-	   src/quack_utility.o \
-	   src/quack_write_manager.o \
-	   src/quack.o
-
-OBJS = $(subst .c,.o, $(SRCS))
+SRCS = $(wildcard src/*.cpp)
+OBJS = $(patsubst %.cpp,%.o,$(SRCS))
 
 ifdef PG_CONFIG_PATH
 PG_CONFIG= $(PG_CONFIG_PATH)
@@ -20,20 +15,21 @@ endif
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 PG_LIB := $(shell $(PG_CONFIG) --pkglibdir)
 INCLUDEDIR := ${shell $(PG_CONFIG) --includedir}
-INCLUDEDIR_SERVER := ${shell $(PG_CONFIG) --includedir-server}
+PG_CPPFLAGS := -I$(INCLUDEDIR) -std=c++11
+INCLUDEDIR_SERVER := $(shell $(PG_CONFIG) --includedir-server)
 
 DUCKDB_DIR = third_party/duckdb
 
 DEBUG_FLAGS = -g -O0
 
-override PG_CFLAGS += $(DEBUG_FLAGS) -I$(CURDIR)/include -I$(CURDIR)/$(DUCKDB_DIR)
+override PG_CPPFLAGS += $(DEBUG_FLAGS) -I$(CURDIR)/include -I$(CURDIR)/$(DUCKDB_DIR)
 
-SHLIB_LINK += -Wl,-rpath,$(PG_LIB)/ -L$(PG_LIB) -lduckdb -L$(CURDIR)/$(DUCKDB_DIR)
+SHLIB_LINK += -Wl,-rpath,$(PG_LIB)/ -lpq -L$(PG_LIB) -lduckdb -L$(CURDIR)/$(DUCKDB_DIR)
 
-COMPILE.c.bc = $(CLANG) -Wno-ignored-attributes -Wno-register $(BITCODE_CXXFLAGS) $(PG_CFLAGS) -I$(INCLUDEDIR_SERVER) -emit-llvm -c
+COMPILE.cc.bc = $(CXX) -Wno-ignored-attributes -Wno-register $(BITCODE_CXXFLAGS) $(CXXFLAGS) $(PG_CPPFLAGS) -I$(INCLUDEDIR_SERVER) -emit-llvm -c
 
-%.bc : %.c
-	$(COMPILE.c.bc) $(SHLIB_LINK) $(PG_CFLAGS) -I$(INCLUDE_SERVER) -o $@ $<
+%.bc : %.cpp
+	$(COMPILE.cc.bc) $(SHLIB_LINK) $(PG_CPPFLAGS) -I$(INCLUDE_SERVER) -o $@ $<
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -62,7 +58,6 @@ all: quack.so
 $(DUCKDB_DIR)/$(DUCKDB_ZIP):
 	curl -sL $(DUCKDB_BASE_URL)/$(DUCKDB_ZIP) -o $(DUCKDB_DIR)/$(DUCKDB_ZIP)
 
-# this really likes to run everytime, not sure why
 $(DUCKDB_DIR)/$(DUCKDB_LIB): $(DUCKDB_DIR)/$(DUCKDB_ZIP)
 	cd $(DUCKDB_DIR) && unzip -o -q $(DUCKDB_ZIP) $(DUCKDB_LIB)
 
