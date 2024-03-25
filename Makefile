@@ -67,4 +67,9 @@ install_duckdb:
 
 quack.so: $(DUCKDB_DIR)/$(DUCKDB_LIB)
 
+format:
+	cp $(DUCKDB_DIR)/.clang-format .
+	find src/ -iname "*.hpp" -o -iname "*.cpp" | xargs clang-format --sort-includes=0 -style=file -i
+	rm .clang-format
+
 install: install_duckdb

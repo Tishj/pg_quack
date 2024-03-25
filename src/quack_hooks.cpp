@@ -17,213 +17,174 @@ extern "C" {
 static ExecutorRun_hook_type PrevExecutorRunHook = NULL;
 static ProcessUtility_hook_type PrevProcessUtilityHook = NULL;
 
-static bool
-quack_check_tables(List * rtable)
-{
-  ListCell *lc;
-  TupleDesc tupleDesc;
-  int numCols;
+static bool quack_check_tables(List *rtable) {
+	ListCell *lc;
+	TupleDesc tupleDesc;
+	int numCols;
 
-  foreach(lc, rtable)
-  {
-    RangeTblEntry * table = (RangeTblEntry *)lfirst(lc);
-    Relation rel = NULL;
-    
-    if (!table->relid)
-        return false;
+	foreach (lc, rtable) {
+		RangeTblEntry *table = (RangeTblEntry *)lfirst(lc);
+		Relation rel = NULL;
 
-    rel = RelationIdGetRelation(table->relid);
+		if (!table->relid)
+			return false;
 
-// GET TYPE / NAME INFO
+		rel = RelationIdGetRelation(table->relid);
 
-    /* Get the tuple descriptor */
-    tupleDesc = RelationGetDescr(rel);
-    if (!tupleDesc) {
-        elog(ERROR, "Failed to get tuple descriptor for relation with OID %u", table->relid);
-        RelationClose(rel);
-		return false;
-    }
+		// GET TYPE / NAME INFO
 
-    /* Get the number of columns */
-    numCols = tupleDesc->natts;
-
-    /* Loop through each column */
-    for (idx_t i = 0; i < numCols; i++) {
-        Form_pg_attribute attr = &tupleDesc->attrs[i];
-        Oid typeOid = attr->atttypid;
-		/* Get the type tuple */
-		HeapTuple typeTuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typeOid));
-		if (!HeapTupleIsValid(typeTuple)) {
-			elog(ERROR, "cache lookup failed for type %u", typeOid);
+		/* Get the tuple descriptor */
+		tupleDesc = RelationGetDescr(rel);
+		if (!tupleDesc) {
+			elog(ERROR, "Failed to get tuple descriptor for relation with OID %u", table->relid);
+			RelationClose(rel);
 			return false;
 		}
-		Form_pg_type typeStruct = (Form_pg_type) GETSTRUCT(typeTuple);
-		char *typeName = format_type_with_typemod(typeOid, typeStruct->typmodin);
-		ReleaseSysCache(typeTuple);
-        char *colName = NameStr(attr->attname);
 
-        /* Log column name and type */
-        elog(INFO, "Column name: %s, Type: %s", colName, typeName);
+		/* Get the number of columns */
+		numCols = tupleDesc->natts;
 
-        /* Free memory */
-        pfree(typeName);
-    }
+		/* Loop through each column */
+		for (idx_t i = 0; i < numCols; i++) {
+			Form_pg_attribute attr = &tupleDesc->attrs[i];
+			Oid typeOid = attr->atttypid;
+			/* Get the type tuple */
+			HeapTuple typeTuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typeOid));
+			if (!HeapTupleIsValid(typeTuple)) {
+				elog(ERROR, "cache lookup failed for type %u", typeOid);
+				return false;
+			}
+			Form_pg_type typeStruct = (Form_pg_type)GETSTRUCT(typeTuple);
+			char *typeName = format_type_with_typemod(typeOid, typeStruct->typmodin);
+			ReleaseSysCache(typeTuple);
+			char *colName = NameStr(attr->attname);
 
-// END
+			/* Log column name and type */
+			elog(INFO, "Column name: %s, Type: %s", colName, typeName);
 
-    if (rel->rd_amhandler != 0 &&
-        GetTableAmRoutine(rel->rd_amhandler) != quack_get_table_am_routine())
-    {
-      RelationClose(rel);
-      return false;
-    }
-    RelationClose(rel);
-  }
+			/* Free memory */
+			pfree(typeName);
+		}
 
-  return true;
+		// END
+
+		if (rel->rd_amhandler != 0 && GetTableAmRoutine(rel->rd_amhandler) != quack_get_table_am_routine()) {
+			RelationClose(rel);
+			return false;
+		}
+		RelationClose(rel);
+	}
+
+	return true;
 }
 
 static void QuackExecuteSelect(QueryDesc *query_desc, ScanDirection direction, uint64_t count) {
-    duckdb_database db = quack_open_database(MyDatabaseId, false);
-    duckdb_connection connection = quack_open_connection(db);
-    duckdb_result result;
-    idx_t row_count;
-    idx_t column_count;
+	duckdb_database db = quack_open_database(MyDatabaseId, false);
+	duckdb_connection connection = quack_open_connection(db);
+	duckdb_result result;
+	idx_t row_count;
+	idx_t column_count;
 
-    CmdType operation;
-    DestReceiver *dest;
+	CmdType operation;
+	DestReceiver *dest;
 
-    TupleTableSlot * slot = NULL;
+	TupleTableSlot *slot = NULL;
 
-    if(duckdb_query(connection, query_desc->sourceText, &result) == DuckDBError)
-    {
-    
-    }
+	if (duckdb_query(connection, query_desc->sourceText, &result) == DuckDBError) {
+	}
 
-    operation = query_desc->operation;
-    dest = query_desc->dest;
+	operation = query_desc->operation;
+	dest = query_desc->dest;
 
-    dest->rStartup(dest, operation, query_desc->tupDesc);
+	dest->rStartup(dest, operation, query_desc->tupDesc);
 
-    slot = MakeTupleTableSlot(query_desc->tupDesc, &TTSOpsHeapTuple);
+	slot = MakeTupleTableSlot(query_desc->tupDesc, &TTSOpsHeapTuple);
 
-    row_count = duckdb_row_count(&result);
-    column_count = duckdb_column_count(&result);
+	row_count = duckdb_row_count(&result);
+	column_count = duckdb_column_count(&result);
 
-    for(idx_t row = 0; row < row_count; row++)
-    {
-      ExecClearTuple(slot);
+	for (idx_t row = 0; row < row_count; row++) {
+		ExecClearTuple(slot);
 
-      for(idx_t col = 0; col < column_count; col++)
-      {
-        if (duckdb_value_is_null(&result, col, row))
-        {
-          slot->tts_isnull[col] = true;
-        }
-        else
-        {
-          slot->tts_isnull[col] = false;
-          quack_read_result(slot, &result, col, row);
-        }
-      }
+		for (idx_t col = 0; col < column_count; col++) {
+			if (duckdb_value_is_null(&result, col, row)) {
+				slot->tts_isnull[col] = true;
+			} else {
+				slot->tts_isnull[col] = false;
+				quack_read_result(slot, &result, col, row);
+			}
+		}
 
-      ExecStoreVirtualTuple(slot);
-      dest->receiveSlot(slot, dest);
+		ExecStoreVirtualTuple(slot);
+		dest->receiveSlot(slot, dest);
 
-      for(idx_t i = 0; i < column_count; i++)
-      {
-        if (slot->tts_tupleDescriptor->attrs[i].attbyval == false)
-        {
-          pfree(DatumGetPointer(slot->tts_values[i]));
-        }
-      }
-    }
+		for (idx_t i = 0; i < column_count; i++) {
+			if (slot->tts_tupleDescriptor->attrs[i].attbyval == false) {
+				pfree(DatumGetPointer(slot->tts_values[i]));
+			}
+		}
+	}
 
-    dest->rShutdown(dest);
+	dest->rShutdown(dest);
 
-    duckdb_destroy_result(&result);
-    duckdb_disconnect(&connection);
-    duckdb_close(&db);
+	duckdb_destroy_result(&result);
+	duckdb_disconnect(&connection);
+	duckdb_close(&db);
 
-    return;
+	return;
 }
 
-static void
-quack_executor_run(QueryDesc * queryDesc,
-                   ScanDirection direction,
-                   uint64 count,
-                   bool execute_once)
-{
-  if (queryDesc->operation == CMD_SELECT &&
-      quack_check_tables(queryDesc->plannedstmt->rtable))
-  {
-	QuackExecuteSelect(queryDesc, direction, count);
-  }
+static void quack_executor_run(QueryDesc *queryDesc, ScanDirection direction, uint64 count, bool execute_once) {
+	if (queryDesc->operation == CMD_SELECT && quack_check_tables(queryDesc->plannedstmt->rtable)) {
+		QuackExecuteSelect(queryDesc, direction, count);
+	}
 
-  if (PrevExecutorRunHook)
-  {
-    PrevExecutorRunHook(queryDesc, direction, count, execute_once);
-  }
+	if (PrevExecutorRunHook) {
+		PrevExecutorRunHook(queryDesc, direction, count, execute_once);
+	}
 }
 
-static void 
-quack_process_utility(PlannedStmt * pstmt,
-                      const char * queryString,
-                      bool readOnlyTree,
-                      ProcessUtilityContext context,
-                      ParamListInfo params,
-                      struct QueryEnvironment * queryEnv,
-                      DestReceiver * dest,
-                      QueryCompletion * completionTag)
-{
+static void quack_process_utility(PlannedStmt *pstmt, const char *queryString, bool readOnlyTree,
+                                  ProcessUtilityContext context, ParamListInfo params,
+                                  struct QueryEnvironment *queryEnv, DestReceiver *dest,
+                                  QueryCompletion *completionTag) {
 
-  Node *parsetree = pstmt->utilityStmt;
+	Node *parsetree = pstmt->utilityStmt;
 
-  if (IsA(parsetree, CreateStmt))
-  {
-    CreateStmt * create_stmt = (CreateStmt *) parsetree;
-    ListCell * lc;
+	if (IsA(parsetree, CreateStmt)) {
+		CreateStmt *create_stmt = (CreateStmt *)parsetree;
+		ListCell *lc;
 
-    if (create_stmt->accessMethod && 
-        !memcmp(create_stmt->accessMethod, "quack", 5))
-    {
-      StringInfo create_table_str = makeStringInfo();
-      bool first = true;
-      appendStringInfo(create_table_str, "CREATE TABLE %s (", create_stmt->relation->relname);
-      foreach(lc, create_stmt->tableElts)
-      {
-        ColumnDef * def = (ColumnDef *)lfirst(lc);
-        Oid pg_oid = LookupTypeNameOid(NULL, def->typeName, true);
+		if (create_stmt->accessMethod && !memcmp(create_stmt->accessMethod, "quack", 5)) {
+			StringInfo create_table_str = makeStringInfo();
+			bool first = true;
+			appendStringInfo(create_table_str, "CREATE TABLE %s (", create_stmt->relation->relname);
+			foreach (lc, create_stmt->tableElts) {
+				ColumnDef *def = (ColumnDef *)lfirst(lc);
+				Oid pg_oid = LookupTypeNameOid(NULL, def->typeName, true);
 
-        if (first)
-        {
-          first = false;
-        }
-        else
-        {
-          appendStringInfo(create_table_str, ", ");
-        }
+				if (first) {
+					first = false;
+				} else {
+					appendStringInfo(create_table_str, ", ");
+				}
 
-        appendStringInfo(create_table_str, "%s %s", def->colname, quack_duckdb_type(pg_oid));
-      }
-      appendStringInfo(create_table_str, ");");
+				appendStringInfo(create_table_str, "%s %s", def->colname, quack_duckdb_type(pg_oid));
+			}
+			appendStringInfo(create_table_str, ");");
 
-      quack_execute_query(create_table_str->data);
-    }
-  }
+			quack_execute_query(create_table_str->data);
+		}
+	}
 
-  PrevProcessUtilityHook(pstmt, queryString, false, context,
-                         params, queryEnv, dest, completionTag);
+	PrevProcessUtilityHook(pstmt, queryString, false, context, params, queryEnv, dest, completionTag);
 }
 
-void
-quack_init_hooks(void)
-{
-  PrevExecutorRunHook = ExecutorRun_hook ? ExecutorRun_hook : standard_ExecutorRun;
-  ExecutorRun_hook = quack_executor_run;
+void quack_init_hooks(void) {
+	PrevExecutorRunHook = ExecutorRun_hook ? ExecutorRun_hook : standard_ExecutorRun;
+	ExecutorRun_hook = quack_executor_run;
 
-  PrevProcessUtilityHook = ProcessUtility_hook ? ProcessUtility_hook : standard_ProcessUtility;
-  ProcessUtility_hook = quack_process_utility;
+	PrevProcessUtilityHook = ProcessUtility_hook ? ProcessUtility_hook : standard_ProcessUtility;
+	ProcessUtility_hook = quack_process_utility;
 }
-
 }

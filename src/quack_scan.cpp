@@ -19,12 +19,12 @@ extern "C" {
 #include "catalog/pg_type.h"
 #include "utils/syscache.h"
 #include "utils/builtins.h"
-
 }
 
 namespace duckdb {
 
-unique_ptr<TableRef> PostgresReplacementScan(ClientContext &context, const string &table_name, ReplacementScanData *data) {
+unique_ptr<TableRef> PostgresReplacementScan(ClientContext &context, const string &table_name,
+                                             ReplacementScanData *data) {
 	return nullptr;
 }
 
