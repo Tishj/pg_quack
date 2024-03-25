@@ -1,3 +1,6 @@
+#include "duckdb.hpp"
+#include "quack.hpp"
+
 extern "C" {
 
 #include "postgres.h"
@@ -16,10 +19,6 @@ extern "C" {
 #include "storage/lmgr.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
-
-#include "quack.hpp"
-
-#include "duckdb.h"
 
 
 static const TupleTableSlotOps *

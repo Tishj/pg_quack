@@ -24,7 +24,7 @@ DEBUG_FLAGS = -g -O0
 
 override PG_CPPFLAGS += $(DEBUG_FLAGS) -I$(CURDIR)/include -I$(CURDIR)/$(DUCKDB_DIR)
 
-SHLIB_LINK += -Wl,-rpath,$(PG_LIB)/ -lpq -L$(PG_LIB) -lduckdb -L$(CURDIR)/$(DUCKDB_DIR)
+SHLIB_LINK += -Wl,-rpath,$(PG_LIB)/ -lpq -L$(PG_LIB) -lduckdb -L$(CURDIR)/$(DUCKDB_DIR) -lstdc++
 
 COMPILE.cc.bc = $(CXX) -Wno-ignored-attributes -Wno-register $(BITCODE_CXXFLAGS) $(CXXFLAGS) $(PG_CPPFLAGS) -I$(INCLUDEDIR_SERVER) -emit-llvm -c
 

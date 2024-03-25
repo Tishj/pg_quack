@@ -1,3 +1,6 @@
+#include "duckdb.hpp"
+#include "quack.hpp"
+
 extern "C" {
 
 #include "postgres.h"
@@ -7,9 +10,7 @@ extern "C" {
 #include "catalog/pg_type.h"
 #include "utils/fmgrprotos.h"
 
-#include "duckdb.h"
 
-#include "quack.hpp"
 
 // DuckDB has date starting from 1/1/1970 while PG starts from 1/1/2000
 #define QUACK_DUCK_DATE_OFFSET 10957

@@ -1,3 +1,5 @@
+#include "quack.hpp"
+
 extern "C" {
 
 #include <sys/types.h>
@@ -12,8 +14,6 @@ extern "C" {
 #include "access/amapi.h"
 #include "commands/vacuum.h"
 #include "utils/guc.h"
-
-#include "quack.hpp"
 
 PG_MODULE_MAGIC;
 

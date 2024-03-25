@@ -1,3 +1,5 @@
+#include "quack.hpp"
+
 extern "C" {
 
 #include "postgres.h"
@@ -11,8 +13,6 @@ extern "C" {
 #include "catalog/pg_type.h"
 #include "utils/syscache.h"
 #include "utils/builtins.h"
-
-#include "quack.hpp"
 
 static ExecutorRun_hook_type PrevExecutorRunHook = NULL;
 static ProcessUtility_hook_type PrevProcessUtilityHook = NULL;
@@ -83,15 +83,7 @@ quack_check_tables(List * rtable)
   return true;
 }
 
-static void
-quack_executor_run(QueryDesc * queryDesc,
-                   ScanDirection direction,
-                   uint64 count,
-                   bool execute_once)
-{
-  if (queryDesc->operation == CMD_SELECT &&
-      quack_check_tables(queryDesc->plannedstmt->rtable))
-  {
+static void QuackExecuteSelect(QueryDesc *query_desc, ScanDirection direction, uint64_t count) {
     duckdb_database db = quack_open_database(MyDatabaseId, false);
     duckdb_connection connection = quack_open_connection(db);
     duckdb_result result;
@@ -103,17 +95,17 @@ quack_executor_run(QueryDesc * queryDesc,
 
     TupleTableSlot * slot = NULL;
 
-    if(duckdb_query(connection, queryDesc->sourceText, &result) == DuckDBError)
+    if(duckdb_query(connection, query_desc->sourceText, &result) == DuckDBError)
     {
     
     }
 
-    operation = queryDesc->operation;
-    dest = queryDesc->dest;
+    operation = query_desc->operation;
+    dest = query_desc->dest;
 
-    dest->rStartup(dest, operation, queryDesc->tupDesc);
+    dest->rStartup(dest, operation, query_desc->tupDesc);
 
-    slot = MakeTupleTableSlot(queryDesc->tupDesc, &TTSOpsHeapTuple);
+    slot = MakeTupleTableSlot(query_desc->tupDesc, &TTSOpsHeapTuple);
 
     row_count = duckdb_row_count(&result);
     column_count = duckdb_column_count(&result);
@@ -154,6 +146,18 @@ quack_executor_run(QueryDesc * queryDesc,
     duckdb_close(&db);
 
     return;
+}
+
+static void
+quack_executor_run(QueryDesc * queryDesc,
+                   ScanDirection direction,
+                   uint64 count,
+                   bool execute_once)
+{
+  if (queryDesc->operation == CMD_SELECT &&
+      quack_check_tables(queryDesc->plannedstmt->rtable))
+  {
+	QuackExecuteSelect(queryDesc, direction, count);
   }
 
   if (PrevExecutorRunHook)

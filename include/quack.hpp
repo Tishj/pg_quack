@@ -1,13 +1,15 @@
 #pragma once
 
+#include "duckdb.hpp"
+
+extern "C" {
+
 #include "postgres.h"
 
 #include "storage/relfilenode.h"
 #include "access/tupdesc.h"
 #include "access/tableam.h"
 #include "utils/rel.h"
-
-#include "duckdb.h"
 
 /* Quack GUC */
 extern char * quack_data_dir;
@@ -50,3 +52,5 @@ extern void quack_flush_write_state(SubTransactionId currentSubXid,
                                     bool commit);
 // quack.c
 void _PG_init(void);
+
+}

@@ -1,3 +1,5 @@
+#include "quack.hpp"
+
 extern "C" {
 
 #include "postgres.h"
@@ -6,7 +8,6 @@ extern "C" {
 #include "common/hashfn.h"
 #include "executor/executor.h"
 
-#include "quack.hpp"
 
 static HTAB * quack_write_state_map = NULL;
 static MemoryContext quack_write_state_context = NULL;
