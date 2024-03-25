@@ -167,8 +167,6 @@ unique_ptr<DuckDB> quack_open_database(Oid databaseOid, bool preserveInsertOrder
 
 	DBConfig config;
 	config.SetOptionByName("preserve_insertion_order", Value::BOOLEAN(false));
-	// Add the replacement scan
-	// config.replacement_scans.emplace_back(???);
 
 	StringInfo database_path = quack_database_path(databaseOid);
 

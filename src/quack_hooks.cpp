@@ -1,4 +1,5 @@
 #include "quack.hpp"
+#include "quack_scan.hpp"
 
 extern "C" {
 
@@ -146,6 +147,8 @@ namespace duckdb {
 
 static void QuackExecuteSelect(QueryDesc *query_desc, ScanDirection direction, uint64_t count) {
 	auto db = quack_open_database(MyDatabaseId, false);
+	db->instance->config.replacement_scans.emplace_back(
+	    PostgresReplacementScan, make_uniq_base<ReplacementScanData, PostgresReplacementScanData>(query_desc));
 	auto connection = quack_open_connection(*db);
 	idx_t column_count;
 

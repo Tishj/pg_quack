@@ -5,6 +5,7 @@
 
 #include "duckdb.hpp"
 #include "quack.hpp"
+#include "quack_scan.hpp"
 
 extern "C" {
 
@@ -22,6 +23,11 @@ extern "C" {
 }
 
 namespace duckdb {
+
+PostgresReplacementScanData::PostgresReplacementScanData(QueryDesc *desc) : desc(desc) {
+}
+PostgresReplacementScanData::~PostgresReplacementScanData() {
+}
 
 unique_ptr<TableRef> PostgresReplacementScan(ClientContext &context, const string &table_name,
                                              ReplacementScanData *data) {
